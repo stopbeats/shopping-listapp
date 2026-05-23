@@ -62,6 +62,7 @@
     }
 
     .input-row button:hover { background: #3b6de0; }
+    .input-row button:disabled { background: #a0aec0; cursor: not-allowed; }
 
     .stats {
       font-size: 0.82rem;
@@ -139,6 +140,24 @@
     }
 
     .clear-done:hover { background: #fff5f5; color: #e53e3e; border-color: #fed7d7; }
+
+    .loading {
+      text-align: center;
+      color: #a0aec0;
+      padding: 40px 0;
+      font-size: 0.9rem;
+    }
+
+    .error-msg {
+      background: #fff5f5;
+      color: #e53e3e;
+      border: 1px solid #fed7d7;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -147,33 +166,45 @@
 
     <div class="input-row">
       <input id="itemInput" type="text" placeholder="아이템 입력..." maxlength="80">
-      <button onclick="addItem()">추가</button>
+      <button id="addBtn" onclick="addItem()">추가</button>
     </div>
 
+    <div class="error-msg" id="errorMsg"></div>
     <div class="stats" id="stats"></div>
 
+    <div class="loading" id="loadingMsg">불러오는 중...</div>
     <ul id="list"></ul>
 
-    <div id="emptyMsg" class="empty">아직 아이템이 없어요.<br>위에서 추가해 보세요!</div>
+    <div id="emptyMsg" class="empty" style="display:none">아직 아이템이 없어요.<br>위에서 추가해 보세요!</div>
 
     <button class="clear-done" id="clearDoneBtn" onclick="clearDone()" style="display:none">완료 항목 삭제</button>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const STORAGE_KEY = 'shopping-list-v1';
+    const SUPABASE_URL = 'https://hlkyhuhvhomausdcxozu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhsa3lodWh2aG9tYXVzZGN4b3p1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MjI5NDgsImV4cCI6MjA5NTA5ODk0OH0.mPpkhSJYn3gG_UEOyzU-4JSDKbYlQyuyILk3PdRET7Y';
 
-    let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const { createClient } = supabase;
+    const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    function save() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    let items = [];
+
+    function showError(msg) {
+      const el = document.getElementById('errorMsg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 4000);
     }
 
     function render() {
       const list = document.getElementById('list');
       const empty = document.getElementById('emptyMsg');
+      const loading = document.getElementById('loadingMsg');
       const stats = document.getElementById('stats');
       const clearBtn = document.getElementById('clearDoneBtn');
 
+      loading.style.display = 'none';
       list.innerHTML = '';
 
       if (items.length === 0) {
@@ -189,14 +220,14 @@
       stats.textContent = `${items.length}개 중 ${done}개 완료`;
       clearBtn.style.display = done > 0 ? 'block' : 'none';
 
-      items.forEach((item, idx) => {
+      items.forEach(item => {
         const li = document.createElement('li');
         if (item.checked) li.classList.add('done');
 
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = item.checked;
-        cb.addEventListener('change', () => toggle(idx));
+        cb.addEventListener('change', () => toggle(item.id));
 
         const span = document.createElement('span');
         span.className = 'item-name';
@@ -206,39 +237,99 @@
         del.className = 'delete-btn';
         del.textContent = '✕';
         del.title = '삭제';
-        del.addEventListener('click', () => remove(idx));
+        del.addEventListener('click', () => remove(item.id));
 
         li.append(cb, span, del);
         list.appendChild(li);
       });
     }
 
-    function addItem() {
+    async function loadItems() {
+      const { data, error } = await db
+        .from('shopping_items')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        showError('데이터를 불러오지 못했습니다: ' + error.message);
+        document.getElementById('loadingMsg').style.display = 'none';
+        return;
+      }
+
+      items = data || [];
+      render();
+    }
+
+    async function addItem() {
       const input = document.getElementById('itemInput');
+      const addBtn = document.getElementById('addBtn');
       const name = input.value.trim();
       if (!name) return;
-      items.push({ name, checked: false });
-      save();
+
+      addBtn.disabled = true;
+
+      const { data, error } = await db
+        .from('shopping_items')
+        .insert([{ name, checked: false }])
+        .select()
+        .single();
+
+      addBtn.disabled = false;
+
+      if (error) {
+        showError('추가에 실패했습니다: ' + error.message);
+        return;
+      }
+
+      items.push(data);
       render();
       input.value = '';
       input.focus();
     }
 
-    function toggle(idx) {
-      items[idx].checked = !items[idx].checked;
-      save();
+    async function toggle(id) {
+      const item = items.find(i => i.id === id);
+      const { error } = await db
+        .from('shopping_items')
+        .update({ checked: !item.checked })
+        .eq('id', id);
+
+      if (error) {
+        showError('변경에 실패했습니다: ' + error.message);
+        return;
+      }
+
+      item.checked = !item.checked;
       render();
     }
 
-    function remove(idx) {
-      items.splice(idx, 1);
-      save();
+    async function remove(id) {
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        showError('삭제에 실패했습니다: ' + error.message);
+        return;
+      }
+
+      items = items.filter(i => i.id !== id);
       render();
     }
 
-    function clearDone() {
+    async function clearDone() {
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .eq('checked', true);
+
+      if (error) {
+        showError('삭제에 실패했습니다: ' + error.message);
+        return;
+      }
+
       items = items.filter(i => !i.checked);
-      save();
       render();
     }
 
@@ -246,7 +337,7 @@
       if (e.key === 'Enter') addItem();
     });
 
-    render();
+    loadItems();
   </script>
 </body>
 </html>
