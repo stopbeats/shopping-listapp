@@ -10,7 +10,18 @@ A secondary script (`make-ai-trends.js`) generates `AI-Trends-2025.pptx` using p
 
 ## Running the App
 
-Open `index.html` directly in a browser. It loads the Supabase JS client from CDN and connects to the live Supabase project.
+Open `index.html` directly in a browser, or serve locally:
+
+```bash
+python3 -m http.server 8080
+```
+
+Loads the Supabase JS client from CDN and connects to the live Supabase project.
+
+## Known Pitfalls
+
+- **한국어 IME 이중 Enter**: `keydown` 핸들러에 반드시 `!e.isComposing` 조건을 유지할 것. 없으면 IME 조합 확정 시 `addItem()`이 두 번 호출되어 중복 insert 발생.
+- **`addItem` 중복 호출 방어**: `addBtn.disabled = true`는 버튼 클릭 중복만 막음. keydown 경로에서는 `isComposing` 체크가 유일한 방어선.
 
 ## Architecture
 
