@@ -1,2 +1,5 @@
 node_modules/
 *.pptx
+make-ai-trends.js
+.playwright-mcp
+.claude
